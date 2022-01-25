@@ -2,14 +2,14 @@ const express = require('express');
 const bodyparser = require('body-parser');
 const mongoose = require('mongoose');
 const bcrypt = require('bcrypt');
-const { json } = require('body-parser');
 
 const app = express();
 app.use(bodyparser.urlencoded({ extended: false }));
 app.use(bodyparser.json());
 
 const port = process.env.PORT || 8000;
-const dburl = 'mongodb://localhost:27017/TMO';
+// const dburl = 'mongodb://localhost:27017/TMO';
+const dburl = 'mongodb+srv://tushar:tushar52002@tmo-db.4c9nu.mongodb.net/TMO-DB?retryWrites=true&w=majority';
 
 // Owner schema and model
 const OwnerSchema = new mongoose.Schema({
