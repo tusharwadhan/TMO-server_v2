@@ -1,7 +1,7 @@
 const express = require('express');
 const bodyparser = require('body-parser');
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 
 const app = express();
 app.use(bodyparser.urlencoded({ extended: false }));
