@@ -1,6 +1,8 @@
 const express = require('express');
 const bodyparser = require('body-parser');
-const mongoose = require('mongoose')
+const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+const { json } = require('body-parser');
 
 const app = express();
 app.use(bodyparser.urlencoded({ extended: false }));
@@ -30,6 +32,7 @@ const categories = mongoose.model('category', CategorySchema);
 // Dishes schema and model
 const DishesSchema = new mongoose.Schema({
   category_id: String,
+  owner_id: String,
   dish_name: String,
   is_veg: Boolean
 });
@@ -47,7 +50,9 @@ const dish_price = mongoose.model('dish_price', DishPriceSchema);
 const OrdersSchema = new mongoose.Schema({
   owner_id: String,
   dish_id: String,
-  quantity_id: String
+  quantity_type: String,
+  price: Number,
+  table_no: Number
 });
 const orders = mongoose.model('orders', OrdersSchema);
 
@@ -72,9 +77,12 @@ mongoose.connect(dburl)
 
 //server succesfull message
 app.get('/',async(req, res) => {
-  // const del = await categories.deleteMany({__v:0});
+  // const del = await orders.deleteMany({__v:0});
+  // const data = await dish_price.find({})
+  // console.log(data);
   // res.send(del)
-  res.send(`server is running succesfully on port ${port}`); 
+  
+  res.send(`server is running succesfully on port ${port}`);
 });
 //get owners
 app.get('/owner',async(req,res)=>{
@@ -100,6 +108,10 @@ app.post('/register',async(req, res) => {
       return;
   }
 
+  //encrypting password
+  const hashedPassword = await bcrypt.hash(req.body.password,12)
+  req.body.password = hashedPassword;
+
   //inserting data into db
   await owner.create(req.body,(error, docs)=> {
     if(error){
@@ -108,8 +120,8 @@ app.post('/register',async(req, res) => {
       res.send(obj);
       return;
     }
-    
-    console.log("user saved!");
+    docs = JSON.parse(JSON.stringify(docs));
+    delete docs.password;
     obj.message = `Registered successfully!`;
     obj.data = docs;
     res.send(obj);
@@ -127,7 +139,8 @@ app.post('/login',async(req,res)=>{
       res.send(obj);
       return;
     }
-    if(data[0].password != req.body.password){
+    const result = await bcrypt.compare(req.body.password,data[0].password);
+    if(!result){
       obj.success = false;
       obj.message = `password does not match for email : ${req.body.email}`;
       res.send(obj);
@@ -195,9 +208,16 @@ app.post('/dish',async(req,res)=>{
 //Get Dish
 app.get('/dish',async(req,res)=>{
   var obj = {"success":true, "message":"", "data":""}
+
+  if(req.query.owner_id == undefined || req.query.owner_id == ""){
+    obj.success = false;
+    obj.message = "invalid ownerID";
+    res.send(obj);
+    return;
+  }
   
   //getting items and price
-  var dish = await dishes.find(req.query,{id:1,dish_name:1,category_id:1,is_veg:1})
+  var dish = await dishes.find(req.query,{id:1,dish_name:1,category_id:1,owner_id:1,is_veg:1})
   var price = await dish_price.find({});
   var result = JSON.parse(JSON.stringify(dish));
 
@@ -248,7 +268,149 @@ app.get('/category',async(req,res)=>{
   res.send(obj);
 })
 
+//Add orders
+app.post('/order',async(req,res)=>{
+  var obj = {"success":true, "message":"", "data":""}
 
+  orders.insertMany(req.body,(error, docs)=>{
+    if(error){
+      obj.success = false;
+      obj.message = "can't add order! please try again...";
+      res.send(obj);
+      return;
+    }
+
+    //sending response
+    obj.message = "order added successfully!";
+    res.send(obj);
+  });
+});
+
+//Get orders
+app.get('/order',async(req,res)=>{
+  var obj = {"success":true, "message":"", "data":""}
+  if(req.query.owner_id == undefined || req.query.owner_id == ""){
+    obj.success = false;
+    obj.message = "invalid ownerID";
+    res.send(obj);
+    return;
+  }
+
+  const order = await orders.find(req.query).lean();
+
+  if(JSON.stringify(order) == "[]"){
+    obj.success = false;
+    obj.message = "This table have no orders";
+    res.send(obj);
+    return;
+  }
+  for(let i = 0 ; i < order.length ; i++){
+    const dish = await dishes.find({_id:order[i].dish_id});
+    let qp = {"type":order[i].quantity_type , "price":order[i].price};
+    order[i].name = dish[0].dish_name;
+    order[i].quantity_price = qp;
+    delete order[i].dish_id;
+    delete order[i].quantity_type;
+    delete order[i].price;
+  }
+  obj.message = "order get successfully";
+  obj.data = order;
+  res.send(obj);
+});
+
+//delete order 
+app.delete('/order',async (req, res) => {
+  var obj = {"success":true, "message":"", "data":""}
+
+  if(req.body.owner_id == undefined || req.body.owner_id == ""){
+    obj.success = false;
+    obj.message = "invalid ownerID";
+    res.send(obj);
+    return;
+  }
+  if(mongoose.Types.ObjectId.isValid(req.body.id)){
+    const del = await orders.deleteMany({_id:req.body.id,owner_id:req.body.owner_id});
+    if(del.deletedCount == 0){
+      obj.success = false;
+      obj.message = "no order with this id exist!";
+      res.send(obj);
+      return;
+    }
+    else{
+      obj.message = "order deleted successfully";
+      res.send(obj);
+      return;
+    }
+  }
+  obj.success = false;
+  obj.message = "invalid id";
+  res.send(obj);
+});
+
+//order finish
+app.post('/orderFinish',async (req,res)=>{
+  var obj = {"success":true, "message":"", "data":""}
+
+  if(req.body.owner_id == undefined || req.body.owner_id == ""){
+    obj.success = false;
+    obj.message = "invalid ownerID";
+    res.send(obj);
+    return;
+  }
+
+  //getting price from table
+  const price = await orders.find(req.body,{id:1,price:1});
+  if(JSON.stringify(price)=="[]"){
+    obj.success = false;
+    obj.message = "no order exist on this table";
+    res.send(obj);
+    return;
+  }
+
+  //getting toal price
+  var totalPrice = 0;
+  for(var i = 0 ; i < price.length ; i++){
+    totalPrice += price[i].price;
+  }
+  
+  //getting current date
+  var datetime = new Date();
+  datetime = datetime.toISOString().slice(0,10);
+
+  // inserting in transactions
+  var insertobj = [{"owner_id":req.body.owner_id, "table_no":req.body.table_no, "total_price":totalPrice ,"date":datetime}];
+  transactions.insertMany(insertobj,(error, docs)=>{
+    if(error){
+      obj.success = false;
+      obj.message = "can't add transaction! please try again...";
+      res.send(obj);
+      return;
+    }
+  });
+
+  //deleting order
+  const del = await orders.deleteMany({table_no:req.body.table_no,owner_id:req.body.owner_id});
+  // console.log(del);
+  obj.message = "order finished successfully";
+  res.send(obj);
+});
+
+//Get transactions
+app.get('/transactions',async(req,res)=>{
+  var obj = {"success":true, "message":"", "data":""}
+
+  if(req.query.owner_id == undefined || req.query.owner_id == ""){
+    obj.success = false;
+    obj.message = "invalid OwnerID";
+    res.send(obj);
+    return;
+  }
+
+  const data = await transactions.find({owner_id:req.query.owner_id});
+  obj.message = "transactions get successfully";
+  obj.data = data;
+  res.send(obj);
+})
 
 //wrong route
 app.get('*',(req,res)=>{
